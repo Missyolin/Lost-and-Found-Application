@@ -28,8 +28,14 @@ class MainViewModel(
         }
     }
 
-    fun getLostandFounds(): LiveData<MyResult<DelcomLostandFoundsResponse>> {
-        return lostandfoundRepository.getLostandFounds(null, 0, null).asLiveData()
+    fun getLostandFounds(
+        isCompleted: Int?,
+        isMe: Int?,
+        status: String?,
+    ): LiveData<MyResult<DelcomLostandFoundsResponse>> {
+        return lostandfoundRepository.getLostandFounds(isCompleted,
+            isMe,
+            status,).asLiveData()
     }
 
     fun getLostandFound(): LiveData<MyResult<DelcomLostandFoundsResponse>> {

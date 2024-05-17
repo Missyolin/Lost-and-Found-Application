@@ -1,11 +1,15 @@
 package com.ifs21008.lostandfound.presentation.profile
 
 import android.content.Intent
+import android.net.Uri
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.view.View
 import android.widget.Toast
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.appcompat.app.AlertDialog
 import com.bumptech.glide.Glide
 import com.ifs21008.lostandfound.R
 import com.ifs21008.lostandfound.data.remote.MyResult
@@ -13,9 +17,15 @@ import com.ifs21008.lostandfound.presentation.ViewModelFactory
 import com.ifs21008.lostandfound.presentation.login.LoginActivity
 import com.ifs21008.lostandfound.data.remote.response.DataUserResponse
 import com.ifs21008.lostandfound.databinding.ActivityProfileBinding
+import com.ifs21008.lostandfound.helper.Utils.Companion.observeOnce
+import com.ifs21008.lostandfound.helper.getImageUri
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
 
 class ProfileActivity : AppCompatActivity() {
     private lateinit var binding: ActivityProfileBinding
+    private var currentImageUri: Uri? = null
     private val viewModel by viewModels<ProfileViewModel> {
         ViewModelFactory.getInstance(this)
     }
@@ -27,6 +37,7 @@ class ProfileActivity : AppCompatActivity() {
 
         setupView()
         setupAction()
+        observeSaveProfileImage()
     }
 
     private fun setupView() {
@@ -71,6 +82,27 @@ class ProfileActivity : AppCompatActivity() {
         }
     }
 
+    private fun observeSaveProfileImage() {
+        viewModel.saveProfileImageResult.observe(this) { result ->
+            when (result) {
+                is MyResult.Success -> {
+                    // Tampilkan pesan sukses jika perlu
+                    Toast.makeText(applicationContext, result.data, Toast.LENGTH_SHORT).show()
+                    // Refresh tampilan profil dengan foto yang baru
+                    observeGetMe()
+                }
+                is MyResult.Error -> {
+                    // Tampilkan pesan error jika perlu
+                    Toast.makeText(applicationContext, result.error, Toast.LENGTH_SHORT).show()
+                }
+                is MyResult.Loading -> {
+                    // Tampilkan indikator loading jika perlu
+                }
+            }
+        }
+    }
+
+
     private fun loadProfileData(profile: DataUserResponse) {
         binding.apply {
             if (profile.user.photo != null) {
@@ -82,6 +114,107 @@ class ProfileActivity : AppCompatActivity() {
             }
             tvProfileName.text = profile.user.name
             tvProfileEmail.text = profile.user.email
+
+            btnCamera.setOnClickListener {
+                startCamera()
+            }
+            btnGallery.setOnClickListener {
+                startGallery()
+            }
+
+            btnSave.setOnClickListener {
+                if (currentImageUri != null) {
+                    val imageFile = currentImageUri?.let {uri ->
+                        contentResolver.openInputStream(uri)?.use { inputStream ->
+                            val imageRequestBody = inputStream.readBytes().toRequestBody("image/*".toMediaType())
+                            MultipartBody.Part.createFormData("photo", "photo.jpg", imageRequestBody)
+                        }
+                    }
+                    if (imageFile != null){
+                        editPhoto(imageFile)
+                    }
+                } else {
+                    AlertDialog.Builder(this@ProfileActivity).apply {
+                        setTitle("Alert!")
+                        setMessage("Please choose one picture!")
+                        setPositiveButton("OK") {_, _-> }
+                        create()
+                        show()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun editPhoto(cover: MultipartBody.Part) {
+        viewModel.editPhoto(cover).observeOnce{ result->
+            when (result) {
+                is MyResult.Loading -> {
+                    showLoading(true)
+                }
+                is MyResult.Success -> {
+                    showLoading(false)
+                    Toast.makeText(
+                        applicationContext,
+                        "Congrats! your profile has been updated!",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    startActivity(Intent(this@ProfileActivity,ProfileActivity::class.java))
+                    finish()
+                }
+                is MyResult.Error -> {
+                    // Handle error
+                    showLoading(false)
+                    AlertDialog.Builder(this@ProfileActivity).apply {
+                        setTitle("Oh No!")
+                        setMessage(result.error)
+                        setPositiveButton("Oke") { _, _ -> }
+                        create()
+                        show()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun startCamera() {
+        currentImageUri = getImageUri(this)
+        launcherIntentCamera.launch(currentImageUri)
+    }
+    private val launcherIntentCamera = registerForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { isSuccess ->
+        if (isSuccess) {
+            showImage()
+        }
+    }
+
+    private fun startGallery() {
+        launcherGallery.launch(
+            PickVisualMediaRequest(
+                ActivityResultContracts.PickVisualMedia.ImageOnly
+            )
+        )
+    }
+
+    private val launcherGallery = registerForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            currentImageUri = uri
+            showImage()
+        } else {
+            Toast.makeText(
+                applicationContext,
+                "Tidak ada media yang dipilih!",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    private fun showImage() {
+        currentImageUri?.let {
+            binding.ivProfile.setImageURI(it)
         }
     }
 

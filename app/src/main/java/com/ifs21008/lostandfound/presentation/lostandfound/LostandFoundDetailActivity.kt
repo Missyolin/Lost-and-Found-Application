@@ -118,7 +118,7 @@ class LostandFoundDetailActivity : AppCompatActivity() {
                         .placeholder(R.drawable.ic_image_24)
                         .into(ivTodoDetailCover)
                 }else{
-                    ivTodoDetailCover.visibility = View.GONE
+                    ivTodoDetailCover.visibility = View.VISIBLE
                 }
 
                 viewModel.getLocalLostFound(lostandfound.id).observeOnce {

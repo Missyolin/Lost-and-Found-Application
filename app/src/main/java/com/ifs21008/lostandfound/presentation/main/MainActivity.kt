@@ -1,6 +1,7 @@
 package com.ifs21008.lostandfound.presentation.main
 
 import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -8,6 +9,7 @@ import android.widget.SearchView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DividerItemDecoration
@@ -67,7 +69,7 @@ class MainActivity : AppCompatActivity() {
             ContextCompat
                 .getDrawable(this, R.drawable.ic_more_vert_24)
 
-        observeGetLostandFounds()
+        observeGetLostandFounds(null,null,null)
     }
 
     private fun setupAction() {
@@ -88,12 +90,71 @@ class MainActivity : AppCompatActivity() {
                 }
                 R.id.mainMenuAllData -> {
                     // Ketika menu "All Data" diklik, panggil fungsi getLostandFounds()
-                    observeGetLostandFounds()
+                    observeGetLostandFounds(null,null,null)
                     true
                 }
                 R.id.mainMenuMyData -> {
                     // Ketika menu "My Data" diklik, panggil fungsi getLostandFound()
                     observeGetMyLostandFounds()
+                    true
+                }
+                R.id.mainMenuFilter ->{
+                    val checkedItems = booleanArrayOf(false, false, false, false, false)
+                    val builder: AlertDialog.Builder = AlertDialog.Builder(this)
+                    builder
+                        .setTitle("Select the filter!")
+                        .setPositiveButton("Filter") { dialog, which ->
+                            val saya = null
+
+                            val lostorfound: String? = if(checkedItems[0]) {
+                                if(checkedItems[1]) {
+                                    null
+                                } else {
+                                    "lost"
+                                }
+                            } else {
+                                if(checkedItems[1]) {
+                                    "found"
+                                } else {
+                                    null
+                                }
+                            }
+
+                            val status: Int? = if(checkedItems[2]) {
+                                if(checkedItems[3]) {
+                                    null
+                                } else {
+                                    1
+                                }
+                            } else {
+                                if(checkedItems[3]) {
+                                    0
+                                } else {
+                                    null
+                                }
+                            }
+
+                            observeGetAll(status, saya, lostorfound)
+                        }
+                        .setNegativeButton("Back") { dialog, which ->
+                            // Do something else.
+                        }
+                        .setMultiChoiceItems(
+                            arrayOf("Lost", "Found", "Completed", "Incompleted"), checkedItems) { dialog, which, isChecked ->
+                            checkedItems[which] = isChecked
+                        }
+
+//                        Log.d("CheckedItemsDump", "Checked items: ${checkedItems.contentToString()}")
+
+                    val dialog: AlertDialog = builder.create()
+                    dialog.setOnShowListener {
+                        dialog.window?.setBackgroundDrawableResource(android.R.color.background_light)
+                        val positiveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                        val negativeButton = dialog.getButton(AlertDialog.BUTTON_NEGATIVE)
+                        positiveButton.setTextColor(Color.BLACK)
+                        negativeButton.setTextColor(Color.BLACK)
+                    }
+                    dialog.show()
                     true
                 }
                 else -> false
@@ -113,8 +174,150 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun observeGetLostandFounds() {
-        viewModel.getLostandFounds().observe(this) { result ->
+    private fun observeGetAll(
+        isCompleted: Int?,
+        isMe: Int?,
+        status: String?
+    ) {
+        viewModel.getLostandFounds(isCompleted,isMe,status).observe(this) { result ->
+            if (result != null) {
+                when (result) {
+                    is MyResult.Loading -> {
+                        showLoading(true)
+                    }
+
+                    is MyResult.Success -> {
+                        showLoading(false)
+                        loadAllToLayout(result.data)
+                    }
+
+                    is MyResult.Error -> {
+                        showLoading(false)
+                        showEmptyError(true)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun loadAllToLayout(response: DelcomLostandFoundsResponse) {
+        // Periksa apakah response atau data pada response null
+        if (response == null) {
+            // Handle null case appropriately, misalnya menampilkan pesan error atau melakukan tindakan lainnya
+            Log.e("MainActivity", "response == null")
+            return
+        } else if (response.data == null){
+            Log.e("MainActivity", "response.data == null")
+            return
+        } else if (response.data.lostFounds == null){
+            Log.e("MainActivity", "response.data.todos == null")
+            return
+        }
+
+        // Lanjutkan dengan pemrosesan data
+        val todos = response.data.lostFounds
+        val layoutManager = LinearLayoutManager(this)
+        binding.rvMainTodos.layoutManager = layoutManager
+        val itemDecoration = DividerItemDecoration(
+            this,
+            layoutManager.orientation
+        )
+        binding.rvMainTodos.addItemDecoration(itemDecoration)
+
+        if (todos.isEmpty()) {
+            showEmptyError(true)
+            binding.rvMainTodos.adapter = null
+        } else {
+            showComponentNotEmpty(true)
+            showEmptyError(false)
+
+            val adapter = LostandFoundsAdapter()
+            adapter.submitOriginalList(todos)
+            binding.rvMainTodos.adapter = adapter
+            adapter.setOnItemClickCallback(object : LostandFoundsAdapter.OnItemClickCallback {
+                override fun onCheckedChangeListener(
+                    todo: LostFoundsItemResponse,
+                    isChecked: Boolean
+                ) {
+                    adapter.filter(binding.svMain.query.toString())
+
+                    viewModel.putLostandFound(
+                        todo.id,
+                        todo.title,
+                        todo.description,
+                        todo.status,
+                        isChecked
+                    ).observeOnce {
+                        when (it) {
+                            is MyResult.Error -> {
+                                if (isChecked) {
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "Gagal menyelesaikan Lost And Found: " + todo.title,
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "Gagal menyelesaikan Lost And Found: " + todo.title,
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
+
+                            is MyResult.Success<*> -> {
+                                if (isChecked) {
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "Berhasil menyelesaikan Lost And Found: " + todo.title,
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "Berhasil batal menyelesaikan Lost And Found: " + todo.title,
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
+
+                            else -> {}
+                        }
+                    }
+                }
+
+                override fun onClickDetailListener(todoId: Int) {
+                    val intent = Intent(
+                        this@MainActivity,
+                        LostandFoundDetailActivity::class.java
+                    )
+                    intent.putExtra(LostandFoundDetailActivity.KEY_TODO_ID, todoId)
+                    launcher.launch(intent)
+                }
+            })
+
+            binding.svMain.setOnQueryTextListener(
+                object : SearchView.OnQueryTextListener {
+                    override fun onQueryTextSubmit(query: String): Boolean {
+                        return false
+                    }
+
+                    override fun onQueryTextChange(newText: String): Boolean {
+                        adapter.filter(newText)
+                        binding.rvMainTodos.layoutManager?.scrollToPosition(0)
+                        return true
+                    }
+                }
+            )
+        }
+    }
+
+    private fun observeGetLostandFounds(
+        isCompleted: Int?,
+        isMe: Int?,
+        status: String?
+    ) {
+        viewModel.getLostandFounds(isCompleted,isMe,status).observe(this) { result ->
             if (result != null) {
                 when (result) {
                     is MyResult.Loading -> {
@@ -181,38 +384,18 @@ class MainActivity : AppCompatActivity() {
                         lostandfound.status,
                         isChecked
                     ).observeOnce {
-                        when (it) {
-                            is MyResult.Error -> {
-                                if (isChecked) {
-                                    Toast.makeText(
-                                        this@MainActivity,
-                                        "Gagal menyelesaikan todo: " + lostandfound.title,
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                } else {
-                                    Toast.makeText(
-                                        this@MainActivity,
-                                        "Gagal batal menyelesaikan todo: " + lostandfound.title,
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            }
-                            is MyResult.Success -> {
-                                if (isChecked) {
-                                    Toast.makeText(
-                                        this@MainActivity,
-                                        "Berhasil menyelesaikan todo: " + lostandfound.title,
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                } else {
-                                    Toast.makeText(
-                                        this@MainActivity,
-                                        "Berhasil batal menyelesaikan todo: " + lostandfound.title,
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            }
-                            else -> {}
+                        if (isChecked) {
+                            Toast.makeText(
+                                this@MainActivity,
+                                lostandfound.title + "is completed!",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            Toast.makeText(
+                                this@MainActivity,
+                                lostandfound.title + "is incompleted!",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
                     }
                 }
